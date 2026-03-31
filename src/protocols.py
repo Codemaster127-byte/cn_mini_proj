@@ -1,4 +1,4 @@
-SERVER_IP = "127.0.0.1"
+SERVER_IP = "<SERVER_MACHINE_IP>"
 TCP_PORT = 6000   # TLS control
 UDP_PORT = 5005   # data
 
