@@ -1,27 +1,25 @@
-SERVER_IP = "<SERVER_MACHINE_IP>"
-TCP_PORT = 6000   # TLS control
-UDP_PORT = 5005   # data
+SERVER_IP = "172.20.10.2"
+TCP_PORT = 6000
 
-ACK_TIMEOUT = 2
-MAX_RETRIES = 3
-LOSS_PROB = 0.3
-
-
-def make_notify(seq, msg):
-    return f"NOTIFY|{seq}|{msg}".encode()
+def make_data(seq, msg):
+    return f"DATA|{seq}|{msg}".encode()
 
 def make_ack(seq):
     return f"ACK|{seq}".encode()
 
-def parse_notify(data):
-    try:
-        parts = data.decode().split("|")
-        return int(parts[1]), parts[2]
-    except:
-        return None, None
+def make_join():
+    return b"JOIN"
 
-def parse_ack(data):
+def make_leave():
+    return b"LEAVE"
+
+def parse(data):
     try:
-        return int(data.decode().split("|")[1])
+        parts = data.decode().split("|", 2)
+        if len(parts) == 1:
+            return parts[0], None, None
+        elif len(parts) == 2:
+            return parts[0], parts[1], None
+        return parts[0], parts[1], parts[2]
     except:
-        return None
+        return None, None, None

@@ -1,91 +1,116 @@
-import socket
-import ssl
-import threading
-import time
+import socket, ssl, threading, time
 from protocols import *
 
 clients = set()
-pending = {}
+clients_lock = threading.Lock()
 
-# ---------------- TLS SERVER (JOIN/LEAVE) ----------------
-def tls_server():
+pending = {}
+pending_lock = threading.Lock()
+
+seq = 0
+seq_lock = threading.Lock()
+
+
+def get_seq():
+    global seq
+    with seq_lock:
+        seq += 1
+        return seq
+
+
+def handle_client(conn, addr):
+    print(f"[TLS] {addr} connected")
+
+    try:
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+
+            cmd, seq_id, payload = parse(data)
+
+            if cmd == "JOIN":
+                with clients_lock:
+                    clients.add(conn)
+                print(f"{addr} joined")
+
+            elif cmd == "LEAVE":
+                break
+
+            elif cmd == "ACK":
+                with pending_lock:
+                    pending.pop((conn, int(seq_id)), None)
+
+    except:
+        pass
+
+    finally:
+        with clients_lock:
+            clients.discard(conn)
+        conn.close()
+
+
+def send_with_retry(client, seq_id, msg):
+    retries = 0
+
+    while retries < 3:
+        try:
+            client.send(make_data(seq_id, msg))
+
+            with pending_lock:
+                pending[(client, seq_id)] = True
+
+            time.sleep(2)
+
+            with pending_lock:
+                if (client, seq_id) not in pending:
+                    return
+
+            retries += 1
+            print(f"Retry {seq_id}")
+
+        except:
+            return
+
+    print("Client removed")
+    with clients_lock:
+        clients.discard(client)
+
+
+def broadcast(msg):
+    seq_id = get_seq()
+
+    with clients_lock:
+        for client in list(clients):
+            threading.Thread(
+                target=send_with_retry,
+                args=(client, seq_id, msg),
+                daemon=True
+            ).start()
+
+
+def start_server():
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(certfile="cert.pem", keyfile="key.pem")
+    context.load_cert_chain("cert.pem", "key.pem")
 
     s = socket.socket()
-    s.bind((SERVER_IP, TCP_PORT))
+    s.bind(("0.0.0.0", TCP_PORT))
     s.listen(5)
 
-    print("[TLS] Control server running...")
+    print("[TLS] Server running...")
 
     while True:
         conn, addr = s.accept()
         tls_conn = context.wrap_socket(conn, server_side=True)
 
-        data = tls_conn.recv(1024).decode()
-
-        if data.startswith("JOIN"):
-            udp_port = int(data.split("|")[1])
-            clients.add((addr[0], udp_port))
-            print(f"{addr[0]} joined")
-
-        elif data.startswith("LEAVE"):
-            udp_port = int(data.split("|")[1])
-            clients.discard((addr[0], udp_port))
-            print(f"{addr[0]} left")
-
-        tls_conn.close()
-
-
-# ---------------- UDP SERVER ----------------
-udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-udp_sock.bind(("0.0.0.0", UDP_PORT))
-
-
-def listen_udp():
-    while True:
-        data, addr = udp_sock.recvfrom(1024)
-
-        if data.startswith(b"ACK"):
-            seq = parse_ack(data)
-            if (addr, seq) in pending:
-                del pending[(addr, seq)]
-                print(f"ACK {seq} from {addr}")
-
-
-def send_with_retry(addr, seq, msg):
-    retries = 0
-
-    while retries < MAX_RETRIES:
-        udp_sock.sendto(make_notify(seq, msg), addr)
-        pending[(addr, seq)] = True
-
-        time.sleep(ACK_TIMEOUT)
-
-        if (addr, seq) not in pending:
-            return
-
-        retries += 1
-        print(f"Retry {seq} to {addr}")
-
-    print(f"Removing {addr}")
-    clients.discard(addr)
-
-
-def broadcast(msg):
-    seq = int(time.time())
-
-    for client in list(clients):
         threading.Thread(
-            target=send_with_retry,
-            args=(client, seq, msg),
+            target=handle_client,
+            args=(tls_conn, addr),
             daemon=True
         ).start()
 
 
-# ---------------- MAIN ----------------
-threading.Thread(target=tls_server, daemon=True).start()
-threading.Thread(target=listen_udp, daemon=True).start()
+threading.Thread(target=start_server, daemon=True).start()
 
 while True:
     msg = input("Notification> ")

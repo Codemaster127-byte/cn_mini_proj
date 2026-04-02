@@ -1,56 +1,43 @@
-import socket
-import ssl
-import threading
-import random
+import socket, ssl, threading, random
 from protocols import *
 
+context = ssl.create_default_context()
+context.check_hostname = False
+context.verify_mode = ssl.CERT_NONE
 
-UDP_PORT_CLIENT = int(input("Enter UDP port: "))
-
-# ---------------- TLS CLIENT (JOIN/LEAVE) ----------------
-def send_tls(msg):
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-
-    s = socket.socket()
-    tls = context.wrap_socket(s, server_hostname=SERVER_IP)
-    tls.connect((SERVER_IP, TCP_PORT))
-
-    tls.send(msg.encode())
-    tls.close()
-
-
-# JOIN
-send_tls(f"JOIN|{UDP_PORT_CLIENT}")
-
-
-# ---------------- UDP CLIENT ----------------
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(("", UDP_PORT_CLIENT))
+s = socket.socket()
+tls = context.wrap_socket(s, server_hostname=SERVER_IP)
+tls.connect((SERVER_IP, TCP_PORT))
 
 
 def listen():
     while True:
-        data, _ = sock.recvfrom(1024)
+        try:
+            data = tls.recv(1024)
+            if not data:
+                break
 
-        seq, msg = parse_notify(data)
+            cmd, seq, msg = parse(data)
 
-        if seq is None:
-            continue
+            if cmd == "DATA":
+                # simulate packet loss
+                if random.random() < 0.3:
+                    print(f"Dropped {seq}")
+                    continue
 
-        if random.random() < LOSS_PROB:
-            print(f"Dropped {seq}")
-            continue
+                print(f"Received: {msg}")
 
-        print(f"Received: {msg}")
+                tls.send(make_ack(seq))
 
-        sock.sendto(make_ack(seq), (SERVER_IP, UDP_PORT))
+        except:
+            break
 
+
+tls.send(make_join())
 
 threading.Thread(target=listen, daemon=True).start()
 
 input("Press Enter to exit...\n")
 
-# LEAVE
-send_tls(f"LEAVE|{UDP_PORT_CLIENT}")
+tls.send(make_leave())
+tls.close()
