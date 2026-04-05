@@ -1,4 +1,4 @@
-SERVER_IP = "172.20.10.2"
+SERVER_IP = "10.14.143.142"
 TCP_PORT = 6000
 
 def make_data(seq, msg):

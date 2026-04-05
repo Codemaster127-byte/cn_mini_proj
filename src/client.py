@@ -21,7 +21,7 @@ def listen():
 
             if cmd == "DATA":
                 # simulate packet loss
-                if random.random() < 0.3:
+                if random.random() < 0.1:
                     print(f"Dropped {seq}")
                     continue
 

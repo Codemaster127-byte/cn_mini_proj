@@ -1,6 +1,8 @@
 import socket, ssl, threading, time
 from protocols import *
 
+ENABLE_ACK = True
+
 clients = set()
 clients_lock = threading.Lock()
 
@@ -35,6 +37,8 @@ def handle_client(conn, addr):
                 print(f"{addr} joined")
 
             elif cmd == "LEAVE":
+                print(f"{addr} left ")
+
                 break
 
             elif cmd == "ACK":
@@ -67,7 +71,7 @@ def send_with_retry(client, seq_id, msg):
                     return
 
             retries += 1
-            print(f"Retry {seq_id}")
+            print(f"Retry {seq_id} attempt {retries}")
 
         except:
             return
@@ -82,11 +86,21 @@ def broadcast(msg):
 
     with clients_lock:
         for client in list(clients):
-            threading.Thread(
+            # threading.Thread(
+            #     target=send_with_retry,
+            #     args=(client, seq_id, msg),
+            #     daemon=True
+            # ).start()
+
+            if ENABLE_ACK:
+                threading.Thread(
                 target=send_with_retry,
                 args=(client, seq_id, msg),
                 daemon=True
             ).start()
+            else:
+                client.send(make_data(seq_id, msg))
+            print(f"Sent seq {seq_id} to {len(clients)} clients")
 
 
 def start_server():
